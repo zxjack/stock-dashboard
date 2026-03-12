@@ -110,6 +110,93 @@
 3. Agent 能正确识别 `is_new` 并静默/推送
 4. 推送内容不包含隐私字段（路径、内网地址、设备标识）
 
+### 2.7 OpenClaw 可直接部署的 Skill 示例（脱敏）
+
+#### A) Skill 目录结构
+```text
+agents/invest/skills/board-anomaly-push/
+├── SKILL.md
+└── scripts/
+    └── run_monitor.py
+```
+
+#### B) `SKILL.md` 示例
+```markdown
+---
+name: board-anomaly-push
+description: 运行板块/自选异动监控脚本，按 ok/is_new 规则决定是否向目标会话推送。
+---
+
+# Board Anomaly Push
+
+## 输入
+监控脚本输出单行 JSON：
+- ok: boolean
+- is_new: boolean
+- message: string
+- items: array
+- errors: array
+
+## 判定规则
+1. ok=true 且 is_new=true：发送 message
+2. is_new=false：静默
+3. ok=false：仅首次异常上报（同类异常静默）
+
+## 脱敏要求
+- 禁止输出绝对路径
+- 禁止输出内网 IP
+- 禁止输出账号/设备标识
+```
+
+#### C) `scripts/run_monitor.py` 示例
+```python
+#!/usr/bin/env python3
+import json
+import os
+import subprocess
+
+MONITOR_CMD = os.getenv("MONITOR_CMD", "python3 monitor.py")
+
+p = subprocess.run(MONITOR_CMD, shell=True, capture_output=True, text=True)
+raw = (p.stdout or "").strip()
+
+if not raw:
+    print(json.dumps({"action": "silent", "reason": "empty_output"}, ensure_ascii=False))
+    raise SystemExit(0)
+
+try:
+    data = json.loads(raw)
+except Exception:
+    print(json.dumps({"action": "alert_once", "message": "监控输出非 JSON"}, ensure_ascii=False))
+    raise SystemExit(0)
+
+ok = bool(data.get("ok", False))
+is_new = bool(data.get("is_new", False))
+msg = str(data.get("message", "")).strip()
+
+if ok and is_new and msg:
+    print(json.dumps({"action": "send", "message": msg}, ensure_ascii=False))
+elif ok and not is_new:
+    print(json.dumps({"action": "silent"}, ensure_ascii=False))
+else:
+    print(json.dumps({"action": "alert_once", "message": msg or "监控异常"}, ensure_ascii=False))
+```
+
+#### D) OpenClaw 接入步骤（最小可用）
+1. 将 skill 放到 `agents/invest/skills/board-anomaly-push/`
+2. 将监控脚本加入定时任务（cron/launchd 任选）
+3. 定时任务执行后读取 JSON：
+   - `action=send` → 调用消息发送
+   - `action=silent` → 不发送
+   - `action=alert_once` → 首次异常告警
+4. 通过 invest 账号完成消息推送
+
+#### E) 验收标准
+- 有新信号时收到推送
+- 无新信号时不打扰
+- 脚本异常不刷屏
+- 推送文本无隐私信息
+
 ---
 
 ## 3. 项目结构（与本次改动相关）
