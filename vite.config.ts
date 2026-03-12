@@ -2,6 +2,7 @@ import { defineConfig, loadEnv, type PluginOption } from 'vite'
 import react from '@vitejs/plugin-react'
 import faroUploader from '@grafana/faro-rollup-plugin'
 import path from 'path'
+import { boardApiPlugin } from './boardApiPlugin'
 
 // https://vite.dev/config/
 export default defineConfig(({ mode }) => {
@@ -14,7 +15,7 @@ export default defineConfig(({ mode }) => {
   const defaultBase = mode === 'production' ? '/stock-dashboard/' : '/'
 
   // 构建插件列表
-  const plugins: PluginOption[] = [react()]
+  const plugins: PluginOption[] = [react(), boardApiPlugin()]
   
   // Grafana Faro source map uploader (仅在生产构建且有 API Key 时启用)
   if (mode === 'production' && grafanaApiKey) {

@@ -5,6 +5,16 @@
 
 import { StockSDK } from 'stock-sdk';
 import type { CacheItem } from '@/types';
+import {
+  getConceptConstituentsApi,
+  getConceptKlineApi,
+  getConceptListApi,
+  getConceptSpotApi,
+  getIndustryConstituentsApi,
+  getIndustryKlineApi,
+  getIndustryListApi,
+  getIndustrySpotApi,
+} from './boardApi';
 
 // SDK 单例
 export const sdk = new StockSDK({
@@ -219,7 +229,7 @@ export async function getTodayTimeline(code: string) {
  */
 export async function getIndustryList() {
   const key = getCacheKey('getIndustryList');
-  return withCache(key, DEFAULT_TTL.boardList, () => sdk.getIndustryList());
+  return withCache(key, DEFAULT_TTL.boardList, () => getIndustryListApi());
 }
 
 /**
@@ -227,7 +237,7 @@ export async function getIndustryList() {
  */
 export async function getConceptList() {
   const key = getCacheKey('getConceptList');
-  return withCache(key, DEFAULT_TTL.boardList, () => sdk.getConceptList());
+  return withCache(key, DEFAULT_TTL.boardList, () => getConceptListApi());
 }
 
 /**
@@ -236,7 +246,7 @@ export async function getConceptList() {
 export async function getIndustryConstituents(symbol: string) {
   const key = getCacheKey('getIndustryConstituents', symbol);
   return withCache(key, DEFAULT_TTL.constituents, () =>
-    sdk.getIndustryConstituents(symbol)
+    getIndustryConstituentsApi(symbol)
   );
 }
 
@@ -246,7 +256,7 @@ export async function getIndustryConstituents(symbol: string) {
 export async function getConceptConstituents(symbol: string) {
   const key = getCacheKey('getConceptConstituents', symbol);
   return withCache(key, DEFAULT_TTL.constituents, () =>
-    sdk.getConceptConstituents(symbol)
+    getConceptConstituentsApi(symbol)
   );
 }
 
@@ -264,7 +274,7 @@ export async function getIndustryKline(
 ) {
   const key = getCacheKey('getIndustryKline', symbol, options);
   return withCache(key, DEFAULT_TTL.historyKline, () =>
-    sdk.getIndustryKline(symbol, options)
+    getIndustryKlineApi(symbol, options?.period ?? 'daily')
   );
 }
 
@@ -282,7 +292,7 @@ export async function getConceptKline(
 ) {
   const key = getCacheKey('getConceptKline', symbol, options);
   return withCache(key, DEFAULT_TTL.historyKline, () =>
-    sdk.getConceptKline(symbol, options)
+    getConceptKlineApi(symbol, options?.period ?? 'daily')
   );
 }
 
@@ -310,14 +320,14 @@ export async function getConceptMinuteKline(
  * 获取行业 Spot 指标
  */
 export async function getIndustrySpot(symbol: string) {
-  return sdk.getIndustrySpot(symbol);
+  return getIndustrySpotApi(symbol);
 }
 
 /**
  * 获取概念 Spot 指标
  */
 export async function getConceptSpot(symbol: string) {
-  return sdk.getConceptSpot(symbol);
+  return getConceptSpotApi(symbol);
 }
 
 // ========== 资金与大单 API ==========

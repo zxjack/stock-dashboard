@@ -104,6 +104,22 @@ export function Dashboard() {
 
   const currentBoards = boardTab === 'industry' ? industryList : conceptList;
 
+  const rankingList = [...industryList]
+    .sort((a, b) => {
+      switch (rankingTab) {
+        case 'fall':
+          return (a.changePercent ?? 0) - (b.changePercent ?? 0);
+        case 'amount':
+          return (b.totalMarketCap ?? 0) - (a.totalMarketCap ?? 0);
+        case 'turnover':
+          return (b.turnoverRate ?? 0) - (a.turnoverRate ?? 0);
+        case 'rise':
+        default:
+          return (b.changePercent ?? 0) - (a.changePercent ?? 0);
+      }
+    })
+    .slice(0, 10);
+
   return (
     <div className={styles.dashboard}>
       {/* 指数卡片 */}
@@ -202,11 +218,11 @@ export function Dashboard() {
               />
             }
           >
-            {industryList.length === 0 ? (
+            {rankingList.length === 0 ? (
               <Loading size="md" />
             ) : (
               <div className={styles.rankingList}>
-                {industryList.slice(0, 10).map((item, index) => (
+                {rankingList.map((item, index) => (
                   <div
                     key={item.code}
                     className={styles.rankingItem}
@@ -214,10 +230,17 @@ export function Dashboard() {
                   >
                     <span className={styles.rankNum}>{index + 1}</span>
                     <div className={styles.stockInfo}>
-                      <span className={styles.stockName}>{item.leadingStock}</span>
+                      <span className={styles.stockName}>{item.name}</span>
+                      <span className={styles.stockCode}>
+                        领涨：{item.leadingStock ?? '--'}
+                      </span>
                     </div>
-                    <div className={`${styles.stockChange} ${getChangeColorClass(item.leadingStockChangePercent)}`}>
-                      {formatPercent(item.leadingStockChangePercent)}
+                    <div className={`${styles.stockChange} ${getChangeColorClass(item.changePercent)}`}>
+                      {rankingTab === 'turnover'
+                        ? `${(item.turnoverRate ?? 0).toFixed(2)}%`
+                        : rankingTab === 'amount'
+                          ? formatAmount((item.totalMarketCap ?? 0) * 10000)
+                          : formatPercent(item.changePercent)}
                     </div>
                   </div>
                 ))}
