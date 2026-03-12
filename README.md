@@ -1,66 +1,104 @@
-# stock-dashboard（当前：v0.5）
+# stock-dashboard（fork 增强版，当前：v0.5）
 
-A 股看板项目（React + TypeScript + Vite），当前已完成 **局域网可用部署**、**移动端导航适配**、**自选股后端同步**、**监控策略基础闭环**。
+> 基于上游 stock-dashboard 的二次开发版本。当前重点是：
+> **局域网稳定部署 + 移动端可用 + 自选股跨端同步 + 监控栏目闭环（invest 推送）**。
 
-仓库：<https://github.com/zxjack/stock-dashboard>
-
----
-
-## 当前版本状态（v0.5）
-
-### ✅ 已完成
-- 局域网访问入口稳定（本机 launchd 常驻）
-- 页面主导航 + 移动端导航
-- 总览/榜单/热力图/自选/监控/尾盘选股等基础页面可用
-- 自选股改为后端存储接口（跨端同步，手机端已验证）
-- 监控策略可保存，invest 推送链路可用
-- 兼容旧数据迁移（旧 `watchlist.json` 自动回填到分组存储）
-
-### ⏳ 后续计划（v0.6+）
-- 板块相关体验与展示继续打磨
-- 监控页交互进一步直观化
-- 更多策略模板与可视化解释
+- 仓库：<https://github.com/zxjack/stock-dashboard>
+- 当前版本标签：`v0.5`（可用版）
 
 ---
 
-## 核心能力
-- **总览**：指数卡片、自选快照、热点板块
-- **榜单**：行业/概念多维排名
-- **热力图**：市场热度可视化（支持适配调优）
-- **自选**：分组、批量导入导出、拖拽排序
-- **监控**：策略配置、绑定股票、异动推送
-- **尾盘选股**：选股辅助与观察
+## 1. 我们在 fork 基础上做了哪些改动
+
+### 1) 部署与运行
+- 增加局域网访问部署方案（`192.168.0.134:4175`）
+- 通过 macOS `launchd` 常驻服务，保证重启后可恢复
+- 前端与本地 API 代理统一收口在同一服务链路
+
+### 2) 导航与栏目
+- 侧边栏调整为：
+  - 总览
+  - 热力图
+  - 榜单
+  - 自选
+  - **监控（新增）**
+  - 尾盘选股
+  - 设置
+- 增加移动端导航组件（`MobileNav`）
+
+### 3) 自选股后端同步（核心改动）
+- 新增后端 API：`/api/watchlist/groups`
+- 前端 `storage.ts` 改为“本地 + 后端同步”
+- 增加旧数据自动迁移：
+  - 当后端分组为空时，自动从旧 `watchlist.json` 回填
+- 已验证手机端与桌面端同步一致
+
+### 4) 监控策略与推送闭环
+- 增加监控配置页（`/monitor`）
+- 支持保存规则、绑定自选、启停策略
+- 对接 invest 侧监控脚本与 Telegram 推送
+- 推送去重与冷却（避免刷屏）
 
 ---
 
-## 数据层说明
+## 2. 新增栏目：怎么配置、怎么使用
 
-### 1) 行情与板块
-- 通过 `stock-sdk` 获取行情与板块数据
-- 主要封装：`src/services/sdk.ts`
+> 重点是 **监控栏目（/monitor）**。
 
-### 2) 自选后端存储（v0.5 新增）
-- 前端接口：`/api/watchlist/groups`
-- 插件实现：`boardApiPlugin.ts`
-- 存储文件：
-  - `agents/invest/portfolio/watchlist_groups.json`
-- 兼容迁移：若分组文件为空，会从旧 `watchlist.json` 自动回填
+### 2.1 监控栏目入口
+- 页面：`/stock-dashboard/monitor`
+- 主要区域：
+  1. 总开关（全局启用）
+  2. 自选监控开关（仅控制自选策略）
+  3. 监控中列表
+  4. 策略列表（条件、启停）
+  5. 绑定关系（股票 ↔ 策略）
 
-### 3) 监控策略
-- 监控规则文件：
+### 2.2 两个“启用”开关区别
+- **全局启用（总开关）**：关掉后，监控链路整体停止
+- **自选股监控启用**：只控制自选策略分支；行业/概念规则可独立保留
+
+### 2.3 使用步骤（推荐）
+1. 打开 `监控` 页面
+2. 新建策略（例如：涨幅 > 1.5%）
+3. 给自选股绑定策略
+4. 点击「保存配置」
+5. 等待定时任务轮询，命中后由 invest bot 推送
+
+### 2.4 配置文件位置
+- 监控规则：
   - `agents/invest/portfolio/board_anomaly_rules.json`
 - 推送去重状态：
   - `agents/invest/research/pipeline/board_anomaly_state.json`
+- 自选分组后端存储：
+  - `agents/invest/portfolio/watchlist_groups.json`
+
+### 2.5 监控相关 API（本地）
+- `GET /api/monitor/rules`
+- `POST /api/monitor/rules`
+- `GET /api/monitor/push-records`
+- `GET /api/monitor/watchlist`
+- `GET /api/monitor/watchlist/quotes?codes=...`
 
 ---
 
-## 隐私与备份
-自选与策略数据属于隐私数据，已从 GitHub 同步备份排除（`.gitignore` 已配置）。
+## 3. 项目结构（与本次改动相关）
+
+- `boardApiPlugin.ts`
+  - 本地 API/代理核心
+  - watchlist 与 monitor 后端接口在此扩展
+- `src/services/storage.ts`
+  - 自选本地存储 + 后端同步逻辑
+- `src/pages/Monitor/*`
+  - 监控栏目 UI 与交互
+- `src/components/layout/MobileNav.*`
+  - 移动端导航
 
 ---
 
-## 开发与运行
+## 4. 运行方式
 
+安装与开发：
 ```bash
 npm install
 npm run dev
@@ -78,14 +116,20 @@ npm run preview
 
 ---
 
-## 目录结构
-- `src/pages`：业务页面
-- `src/components`：通用组件与布局
-- `src/services/sdk.ts`：行情数据层
-- `src/services/storage.ts`：前端存储与后端同步封装
-- `boardApiPlugin.ts`：本地 API/代理插件（含 watchlist/monitor 接口）
+## 5. 隐私与备份说明
+
+自选分组、监控规则、推送状态属于隐私/运行态数据，按当前策略不纳入公开仓库同步。
 
 ---
 
-## 备注
-本仓库当前按 **“可用优先”** 推进，先保证链路稳定与跨端可用，再持续优化细节体验。
+## 6. 当前状态与后续
+
+### ✅ v0.5 已完成
+- 局域网部署稳定
+- 手机端自选同步问题修复
+- 监控栏目可配置、可保存、可推送
+
+### ⏳ 下一步（v0.6+）
+- 板块体验继续优化
+- 监控交互进一步直观化
+- 增加更多策略模板与说明
