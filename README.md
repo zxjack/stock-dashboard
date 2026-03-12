@@ -77,6 +77,39 @@
 - `GET /api/monitor/watchlist`
 - `GET /api/monitor/watchlist/quotes?codes=...`
 
+### 2.6 与 OpenClaw Agent 联动（含 Skill 编写）
+> 目标：让“监控配置页 → 监控脚本 → Agent 推送”形成标准闭环。
+
+#### 联动架构（脱敏版）
+1. 前端监控页维护规则（启停、策略、绑定）
+2. 后端 API 提供规则读取与状态查询
+3. OpenClaw 定时任务触发监控脚本
+4. 脚本输出统一 JSON（`ok/is_new/message/items/errors`）
+5. Agent 根据 JSON 决策是否推送
+
+#### 推送判定规则（建议）
+- `ok=true && is_new=true`：发送 `message`
+- `is_new=false`：静默
+- `ok=false`：仅首条异常上报，避免重复刷屏
+
+#### Skill 编写建议（invest 方向）
+- Skill 名称示例：`board-anomaly-push`
+- Skill 职责：
+  - 读取监控脚本输出
+  - 按判定规则决定是否发送
+  - 对重复信号做冷却控制
+- Skill 说明文档建议包含：
+  1. 触发条件（何时执行）
+  2. 输入输出契约（JSON 字段定义）
+  3. 失败兜底（超时/接口异常）
+  4. 脱敏要求（禁止回传本机路径、IP、账号标识）
+
+#### 最小联调清单
+1. 页面保存策略后，`/api/monitor/rules` 能读到更新
+2. 监控脚本可返回标准 JSON
+3. Agent 能正确识别 `is_new` 并静默/推送
+4. 推送内容不包含隐私字段（路径、内网地址、设备标识）
+
 ---
 
 ## 3. 项目结构（与本次改动相关）
