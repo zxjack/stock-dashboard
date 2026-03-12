@@ -3,7 +3,6 @@
  */
 
 import { useState, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { TrendingUp, TrendingDown, BarChart2, RefreshCw } from 'lucide-react';
 import { Card, Tabs, Loading } from '@/components/common';
@@ -27,7 +26,6 @@ const RANKING_TYPES = [
 type SortKey = 'rise' | 'fall' | 'amount' | 'turnover';
 
 export function Rankings() {
-  const navigate = useNavigate();
 
   // 使用共享的板块数据（优化：避免重复请求）
   const { industryList, conceptList, loading } = useBoardData();
@@ -72,11 +70,6 @@ export function Rankings() {
     return sorted.slice(0, 50);
   }, [conceptList, rankType]);
 
-  // 跳转板块详情
-  const handleBoardClick = (code: string, type: 'industry' | 'concept') => {
-    navigate(`/boards/${type}/${code}`);
-  };
-
   if (loading) {
     return <Loading fullScreen text="加载榜单数据..." />;
   }
@@ -112,7 +105,6 @@ export function Rankings() {
                   initial={{ opacity: 0, y: 5 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: index * 0.02 }}
-                  onClick={() => handleBoardClick(item.code, 'industry')}
                 >
                   <span className={styles.colRank}>
                     <span className={`${styles.rankNum} ${index < 3 ? styles.top3 : ''}`}>
@@ -162,7 +154,6 @@ export function Rankings() {
                   initial={{ opacity: 0, y: 5 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: index * 0.02 }}
-                  onClick={() => handleBoardClick(item.code, 'concept')}
                 >
                   <span className={styles.colRank}>
                     <span className={`${styles.rankNum} ${index < 3 ? styles.top3 : ''}`}>

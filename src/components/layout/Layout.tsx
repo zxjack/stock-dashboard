@@ -5,6 +5,7 @@
 import { Outlet } from 'react-router-dom';
 import { Sidebar } from './Sidebar';
 import { Header } from './Header';
+import { MobileNav } from './MobileNav';
 import styles from './Layout.module.css';
 
 export function Layout() {
@@ -29,6 +30,7 @@ export function Layout() {
           <span>仅供学习参考，不构成投资建议</span>
         </footer>
       </main>
+      <MobileNav />
     </div>
   );
 }

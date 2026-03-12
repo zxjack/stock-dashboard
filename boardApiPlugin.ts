@@ -87,10 +87,19 @@ const sdk = new StockSDK();
 const MONITOR_RULES_PATH = '/Users/zxjack/.openclaw/workspace/agents/invest/portfolio/board_anomaly_rules.json';
 const MONITOR_STATE_PATH = '/Users/zxjack/.openclaw/workspace/agents/invest/research/pipeline/board_anomaly_state.json';
 const INVEST_WATCHLIST_PATH = '/Users/zxjack/.openclaw/workspace/agents/invest/portfolio/watchlist.json';
+const WATCHLIST_GROUPS_PATH = '/Users/zxjack/.openclaw/workspace/agents/invest/portfolio/watchlist_groups.json';
 
 type MonitorPushRecord = {
   signature: string;
   sentAt: string;
+};
+
+type WatchlistGroup = {
+  id: string;
+  name: string;
+  codes: string[];
+  createdAt: number;
+  updatedAt: number;
 };
 
 function getCache<T>(key: string): T | null {
@@ -427,6 +436,87 @@ function normalizePoolCode(input: string): string {
   return raw.toLowerCase();
 }
 
+function defaultWatchlistGroups(now = Date.now()): WatchlistGroup[] {
+  return [
+    {
+      id: 'default',
+      name: '默认分组',
+      codes: [],
+      createdAt: now,
+      updatedAt: now,
+    },
+  ];
+}
+
+function sanitizeWatchlistGroups(input: unknown): WatchlistGroup[] {
+  const now = Date.now();
+  const arr = Array.isArray(input) ? input : [];
+  const groups: WatchlistGroup[] = arr
+    .map((item, index) => {
+      const obj = (item && typeof item === 'object') ? (item as Record<string, unknown>) : {};
+      const idRaw = String(obj.id ?? '').trim();
+      const id = idRaw || (index === 0 ? 'default' : `group_${now}_${index}`);
+      const name = String(obj.name ?? (id === 'default' ? '默认分组' : `分组${index + 1}`)).trim() || '未命名分组';
+      const codes = Array.from(
+        new Set(
+          (Array.isArray(obj.codes) ? obj.codes : [])
+            .map((x) => normalizePoolCode(String(x)))
+            .filter(Boolean)
+        )
+      );
+      const createdAt = Number(obj.createdAt) || now;
+      const updatedAt = Number(obj.updatedAt) || now;
+      return { id, name, codes, createdAt, updatedAt };
+    })
+    .filter((g) => !!g.id);
+
+  if (!groups.some((g) => g.id === 'default')) {
+    groups.unshift({ id: 'default', name: '默认分组', codes: [], createdAt: now, updatedAt: now });
+  }
+
+  return groups.length > 0 ? groups : defaultWatchlistGroups(now);
+}
+
+async function getWatchlistGroupsFromBackend(): Promise<WatchlistGroup[]> {
+  const stored = await readJsonFile<WatchlistGroup[] | { groups?: unknown }>(WATCHLIST_GROUPS_PATH, defaultWatchlistGroups());
+  let groups: WatchlistGroup[];
+  if (Array.isArray(stored)) {
+    groups = sanitizeWatchlistGroups(stored);
+  } else if (stored && typeof stored === 'object' && Array.isArray((stored as any).groups)) {
+    groups = sanitizeWatchlistGroups((stored as any).groups);
+  } else {
+    groups = defaultWatchlistGroups();
+  }
+
+  const hasAnyCodes = groups.some((g) => Array.isArray(g.codes) && g.codes.length > 0);
+  if (hasAnyCodes) return groups;
+
+  // 兼容旧数据：watchlist_groups 为空时，从 invest 旧股票池回填一次
+  const legacyPool = await getInvestWatchlistPool();
+  if (legacyPool.codes.length > 0) {
+    const now = Date.now();
+    const migrated = sanitizeWatchlistGroups([
+      {
+        id: 'default',
+        name: '默认分组',
+        codes: legacyPool.codes,
+        createdAt: now,
+        updatedAt: now,
+      },
+    ]);
+    await writeJsonFile(WATCHLIST_GROUPS_PATH, migrated);
+    return migrated;
+  }
+
+  return groups;
+}
+
+async function saveWatchlistGroupsToBackend(groups: WatchlistGroup[]): Promise<WatchlistGroup[]> {
+  const sanitized = sanitizeWatchlistGroups(groups);
+  await writeJsonFile(WATCHLIST_GROUPS_PATH, sanitized);
+  return sanitized;
+}
+
 async function getInvestWatchlistPool() {
   const data = await readJsonFile<Record<string, unknown>>(INVEST_WATCHLIST_PATH, {} as Record<string, unknown>);
   const result = {
@@ -518,6 +608,31 @@ function createHandler(): Connect.NextHandleFunction {
 
     try {
       const url = new URL(req.url, 'http://localhost');
+
+      if (url.pathname === '/api/watchlist/groups' && req.method === 'GET') {
+        json(res, 200, await getWatchlistGroupsFromBackend());
+        return;
+      }
+
+      if (url.pathname === '/api/watchlist/groups' && req.method === 'POST') {
+        const chunks: Buffer[] = [];
+        req.on('data', (chunk) => chunks.push(Buffer.from(chunk)));
+        req.on('end', async () => {
+          try {
+            const body = JSON.parse(Buffer.concat(chunks).toString('utf-8') || '[]') as unknown;
+            const groups = Array.isArray(body)
+              ? body
+              : (body && typeof body === 'object' && Array.isArray((body as any).groups))
+                ? (body as any).groups
+                : [];
+            const saved = await saveWatchlistGroupsToBackend(groups);
+            json(res, 200, { ok: true, groups: saved });
+          } catch (error) {
+            json(res, 400, { ok: false, error: error instanceof Error ? error.message : String(error) });
+          }
+        });
+        return;
+      }
 
       if (url.pathname === '/api/monitor/rules' && req.method === 'GET') {
         json(res, 200, await getMonitorRules());

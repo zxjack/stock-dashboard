@@ -14,6 +14,10 @@ import type {
 } from '@/types';
 import { normalizeStockCode } from '@/utils/format';
 
+const WATCHLIST_BACKEND_API = '/api/watchlist/groups';
+let watchlistPushTimer: number | null = null;
+let watchlistInitPromise: Promise<void> | null = null;
+
 // 存储键
 const STORAGE_KEYS = {
   WATCHLIST_GROUPS: 'watchlist.groups',
@@ -72,48 +76,123 @@ function safeJsonParse<T>(value: string | null, fallback: T): T {
   }
 }
 
+function normalizeGroupsForSave(groups: WatchlistGroup[]): WatchlistGroup[] {
+  const now = Date.now();
+  const mapped = groups.map((group, index) => {
+    const seen = new Set<string>();
+    const normalizedCodes = (group.codes || [])
+      .map((code) => normalizeStockCode(code))
+      .filter((code): code is string => {
+        if (!code) return false;
+        if (seen.has(code)) return false;
+        seen.add(code);
+        return true;
+      });
+
+    return {
+      id: group.id || (index === 0 ? 'default' : `group_${now}_${index}`),
+      name: (group.name || '').trim() || (group.id === 'default' ? '默认分组' : '未命名分组'),
+      codes: normalizedCodes,
+      createdAt: group.createdAt || now,
+      updatedAt: now,
+    };
+  });
+
+  if (!mapped.some((g) => g.id === 'default')) {
+    mapped.unshift({
+      id: 'default',
+      name: '默认分组',
+      codes: [],
+      createdAt: now,
+      updatedAt: now,
+    });
+  }
+
+  return mapped;
+}
+
+function setLocalWatchlistGroups(groups: WatchlistGroup[]): void {
+  localStorage.setItem(STORAGE_KEYS.WATCHLIST_GROUPS, JSON.stringify(groups));
+}
+
+async function pushWatchlistGroups(groups: WatchlistGroup[]): Promise<void> {
+  try {
+    await fetch(WATCHLIST_BACKEND_API, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(groups),
+    });
+  } catch {
+    // 忽略网络异常，保留本地可用性
+  }
+}
+
+function queueWatchlistSync(groups: WatchlistGroup[]): void {
+  if (watchlistPushTimer) {
+    window.clearTimeout(watchlistPushTimer);
+  }
+  watchlistPushTimer = window.setTimeout(() => {
+    pushWatchlistGroups(groups);
+  }, 120);
+}
+
+async function ensureWatchlistInitialized(force = false): Promise<void> {
+  if (typeof window === 'undefined') return;
+  if (!force && watchlistInitPromise) return watchlistInitPromise;
+
+  watchlistInitPromise = (async () => {
+    try {
+      const localRaw = safeJsonParse<WatchlistGroup[]>(
+        localStorage.getItem(STORAGE_KEYS.WATCHLIST_GROUPS),
+        DEFAULT_WATCHLIST_GROUPS
+      );
+      const localNormalized = normalizeGroupsForSave(localRaw);
+
+      const res = await fetch(`${WATCHLIST_BACKEND_API}?t=${Date.now()}`);
+      if (!res.ok) return;
+      const remote = (await res.json()) as WatchlistGroup[];
+      const remoteNormalized = Array.isArray(remote) ? normalizeGroupsForSave(remote) : [];
+
+      const remoteHasData = remoteNormalized.some((g) => g.codes.length > 0);
+      const localHasData = localNormalized.some((g) => g.codes.length > 0);
+
+      if (remoteHasData) {
+        setLocalWatchlistGroups(remoteNormalized);
+      } else if (localHasData) {
+        // 后端为空时把本地已有数据上推一次，完成跨端迁移
+        setLocalWatchlistGroups(localNormalized);
+        await pushWatchlistGroups(localNormalized);
+      } else {
+        setLocalWatchlistGroups(localNormalized);
+      }
+    } catch {
+      // 忽略初始化失败
+    }
+  })();
+
+  return watchlistInitPromise;
+}
+
+export async function syncWatchlistFromBackend(): Promise<WatchlistGroup[]> {
+  await ensureWatchlistInitialized(true);
+  return getWatchlistGroups();
+}
+
 // ========== 自选分组 ==========
 
 /**
  * 获取所有自选分组
  */
 export function getWatchlistGroups(): WatchlistGroup[] {
+  // 异步初始化后端同步，不阻塞读取
+  void ensureWatchlistInitialized();
+
   const data = localStorage.getItem(STORAGE_KEYS.WATCHLIST_GROUPS);
   const groups = safeJsonParse(data, DEFAULT_WATCHLIST_GROUPS);
-  let changed = false;
+  const normalizedGroups = normalizeGroupsForSave(groups);
 
-  const normalizedGroups = groups.map((group) => {
-    let groupChanged = false;
-    const seen = new Set<string>();
-    const normalizedCodes = group.codes
-      .map((code) => {
-        const normalized = normalizeStockCode(code);
-        if (normalized !== code) groupChanged = true;
-        return normalized;
-      })
-      .filter((code) => {
-        if (!code) {
-          groupChanged = true;
-          return false;
-        }
-        if (seen.has(code)) {
-          groupChanged = true;
-          return false;
-        }
-        seen.add(code);
-        return true;
-      });
-
-    if (groupChanged || normalizedCodes.length !== group.codes.length) {
-      changed = true;
-      return { ...group, codes: normalizedCodes };
-    }
-
-    return group;
-  });
-
-  if (changed) {
-    saveWatchlistGroups(normalizedGroups);
+  if (JSON.stringify(groups) !== JSON.stringify(normalizedGroups)) {
+    setLocalWatchlistGroups(normalizedGroups);
   }
 
   return normalizedGroups;
@@ -123,7 +202,9 @@ export function getWatchlistGroups(): WatchlistGroup[] {
  * 保存自选分组
  */
 export function saveWatchlistGroups(groups: WatchlistGroup[]): void {
-  localStorage.setItem(STORAGE_KEYS.WATCHLIST_GROUPS, JSON.stringify(groups));
+  const normalized = normalizeGroupsForSave(groups);
+  setLocalWatchlistGroups(normalized);
+  queueWatchlistSync(normalized);
 }
 
 /**

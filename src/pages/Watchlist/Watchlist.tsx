@@ -2,7 +2,7 @@
  * 自选管理页
  */
 
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -31,6 +31,7 @@ import {
   batchRemoveFromWatchlist,
   batchAddToWatchlist,
   reorderWatchlist,
+  syncWatchlistFromBackend,
 } from '@/services/storage';
 import {
   formatPrice,
@@ -108,6 +109,20 @@ export function Watchlist() {
     const group = groups.find((g) => g.id === activeGroupId);
     return !group || group.codes.length === 0;
   }, [groups, activeGroupId]);
+
+  useEffect(() => {
+    syncWatchlistFromBackend()
+      .then((serverGroups) => {
+        setGroups(serverGroups);
+        if (!serverGroups.some((g) => g.id === activeGroupId)) {
+          setActiveGroupId(serverGroups[0]?.id || 'default');
+        }
+      })
+      .catch(() => {
+        // ignore
+      });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // 加载行情
   const fetchQuotes = useCallback(async () => {

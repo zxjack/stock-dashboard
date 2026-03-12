@@ -48,7 +48,6 @@
   gap: var(--spacing-sm);
   padding: var(--spacing-sm) var(--spacing-md);
   border-bottom: 1px solid var(--border-secondary);
-  cursor: pointer;
   transition: background var(--transition-fast);
 }
 

@@ -2,7 +2,7 @@
  * 总览页面
  */
 
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Plus } from 'lucide-react';
@@ -10,7 +10,7 @@ import { Card, Tabs, Loading, Empty, Button } from '@/components/common';
 import { usePolling } from '@/hooks';
 import { useBoardData } from '@/contexts';
 import { getFullQuotes } from '@/services/sdk';
-import { getAllWatchlistCodes } from '@/services/storage';
+import { getAllWatchlistCodes, syncWatchlistFromBackend } from '@/services/storage';
 import {
   formatPrice,
   formatPercent,
@@ -51,8 +51,17 @@ export function Dashboard() {
   const [boardTab, setBoardTab] = useState<'industry' | 'concept'>('industry');
   const [initialLoading, setInitialLoading] = useState(true);
 
-  // 获取自选代码
-  const watchlistCodes = getAllWatchlistCodes();
+  const [watchlistCodes, setWatchlistCodes] = useState<string[]>(() => getAllWatchlistCodes());
+
+  useEffect(() => {
+    syncWatchlistFromBackend()
+      .then(() => setWatchlistCodes(getAllWatchlistCodes()))
+      .catch(() => {
+        // ignore
+      });
+  }, []);
+
+  const watchlistCodesForFetch = useMemo(() => watchlistCodes.slice(0, 50), [watchlistCodes]);
 
   // 只加载指数和自选数据（板块数据由全局 Context 提供）
   const fetchQuoteData = useCallback(async () => {
@@ -62,9 +71,11 @@ export function Dashboard() {
       setIndices(indicesData);
 
       // 如果有自选，获取自选行情
-      if (watchlistCodes.length > 0) {
-        const watchlistData = await getFullQuotes(watchlistCodes.slice(0, 50));
+      if (watchlistCodesForFetch.length > 0) {
+        const watchlistData = await getFullQuotes(watchlistCodesForFetch);
         setWatchlistQuotes(watchlistData);
+      } else {
+        setWatchlistQuotes([]);
       }
     } catch (error) {
       console.error('Dashboard fetch error:', error);
@@ -72,8 +83,7 @@ export function Dashboard() {
       // 无论成功或失败，都结束初始加载状态
       setInitialLoading(false);
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [watchlistCodes.length]);
+  }, [watchlistCodesForFetch]);
 
   // 初始加载
   useEffect(() => {

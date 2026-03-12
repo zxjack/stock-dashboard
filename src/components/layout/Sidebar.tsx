@@ -8,10 +8,8 @@ import {
   LayoutDashboard,
   Grid3X3,
   BarChart3,
-  Layers,
   Star,
   Settings,
-  TrendingUp,
   Bell,
 } from 'lucide-react';
 import { Logo } from '@/components/common';
@@ -27,10 +25,8 @@ const navItems: NavItem[] = [
   { path: '/', label: '总览', icon: <LayoutDashboard size={18} /> },
   { path: '/heatmap', label: '热力图', icon: <Grid3X3 size={18} /> },
   { path: '/rankings', label: '榜单', icon: <BarChart3 size={18} /> },
-  { path: '/boards', label: '板块', icon: <Layers size={18} /> },
   { path: '/watchlist', label: '自选', icon: <Star size={18} /> },
   { path: '/monitor', label: '监控', icon: <Bell size={18} /> },
-  { path: '/eod-picker', label: '尾盘选股', icon: <TrendingUp size={18} /> },
 ];
 
 const bottomItems: NavItem[] = [
