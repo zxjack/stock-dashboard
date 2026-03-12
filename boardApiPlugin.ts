@@ -1,6 +1,8 @@
 import type { Connect, PluginOption, PreviewServer, ViteDevServer } from 'vite';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { StockSDK } from 'stock-sdk';
 
 const execFileAsync = promisify(execFile);
 
@@ -80,6 +82,16 @@ type CacheEntry<T> = {
 };
 
 const cache = new Map<string, CacheEntry<unknown>>();
+const sdk = new StockSDK();
+
+const MONITOR_RULES_PATH = '/Users/zxjack/.openclaw/workspace/agents/invest/portfolio/board_anomaly_rules.json';
+const MONITOR_STATE_PATH = '/Users/zxjack/.openclaw/workspace/agents/invest/research/pipeline/board_anomaly_state.json';
+const INVEST_WATCHLIST_PATH = '/Users/zxjack/.openclaw/workspace/agents/invest/portfolio/watchlist.json';
+
+type MonitorPushRecord = {
+  signature: string;
+  sentAt: string;
+};
 
 function getCache<T>(key: string): T | null {
   const hit = cache.get(key);
@@ -322,15 +334,234 @@ print(json.dumps(rows, ensure_ascii=False))
   return setCache(cacheKey, normalized, KLINE_TTL_MS);
 }
 
+async function readJsonFile<T>(path: string, fallback: T): Promise<T> {
+  try {
+    const raw = await readFile(path, 'utf-8');
+    return JSON.parse(raw) as T;
+  } catch {
+    return fallback;
+  }
+}
+
+async function writeJsonFile(path: string, data: unknown): Promise<void> {
+  await mkdir(path.substring(0, path.lastIndexOf('/')), { recursive: true });
+  await writeFile(path, `${JSON.stringify(data, null, 2)}\n`, 'utf-8');
+}
+
+function toPushRecords(sentSignatures: Record<string, string>): MonitorPushRecord[] {
+  return Object.entries(sentSignatures)
+    .map(([signature, sentAt]) => ({ signature, sentAt }))
+    .sort((a, b) => (a.sentAt < b.sentAt ? 1 : -1));
+}
+
+async function getMonitorRules() {
+  const rules = await readJsonFile<Record<string, unknown>>(MONITOR_RULES_PATH, {} as Record<string, unknown>);
+  return {
+    enabled: rules.enabled ?? true,
+    api_base: rules.api_base ?? 'http://192.168.0.134:4175/api/boards',
+    cooldown_minutes: rules.cooldown_minutes ?? 45,
+    fetch_top_n: rules.fetch_top_n ?? 25,
+    max_push_items: rules.max_push_items ?? 6,
+    kinds: rules.kinds ?? {
+      industry: {
+        enabled: true,
+        change_pct_abs: 2.8,
+        turnover_rate_min: 1.2,
+        leading_stock_change_pct_abs: 4.5,
+        watchlist_hit_bonus: true,
+      },
+      concept: {
+        enabled: true,
+        change_pct_abs: 3.3,
+        turnover_rate_min: 1.5,
+        leading_stock_change_pct_abs: 5,
+        watchlist_hit_bonus: true,
+      },
+    },
+    watchlist_monitor: rules.watchlist_monitor ?? {
+      enabled: true,
+      strategies: [],
+      stock_bindings: {},
+    },
+  };
+}
+
+async function getMonitorPushRecords(limit = 50): Promise<MonitorPushRecord[]> {
+  const state = await readJsonFile<{ sent_signatures?: Record<string, string> }>(MONITOR_STATE_PATH, {});
+  const signatures = state.sent_signatures ?? {};
+  return toPushRecords(signatures).slice(0, limit);
+}
+
+function normalizePoolCode(input: string): string {
+  const raw = String(input || '').trim();
+  if (!raw) return '';
+
+  // 已带市场前缀的代码优先处理，避免重复前缀
+  if (/^(hk)\.?\d{5}$/i.test(raw)) {
+    const n = raw.replace(/^hk\.?/i, '');
+    return `hk${n}`;
+  }
+  if (/^(sh|sz|bj)\.?\d{6}$/i.test(raw)) {
+    const m = raw.match(/^(sh|sz|bj)\.?(\d{6})$/i);
+    if (m) return `${m[1].toLowerCase()}${m[2]}`;
+  }
+  if (/^us\.?[A-Za-z][A-Za-z0-9.\-]*$/i.test(raw)) {
+    return `us${raw.replace(/^us\.?/i, '').toUpperCase()}`;
+  }
+
+  // 港股：09992 -> hk09992
+  if (/^\d{5}$/.test(raw)) return `hk${raw}`;
+
+  // A股：301392 -> sz301392; 600000 -> sh600000; 830000 -> bj830000
+  if (/^\d{6}$/.test(raw)) {
+    if (raw.startsWith('6')) return `sh${raw}`;
+    if (raw.startsWith('0') || raw.startsWith('3')) return `sz${raw}`;
+    if (raw.startsWith('4') || raw.startsWith('8')) return `bj${raw}`;
+  }
+
+  // 美股：NVDA -> usNVDA
+  if (/^[A-Za-z][A-Za-z0-9.\-]*$/.test(raw)) {
+    return `us${raw.toUpperCase()}`;
+  }
+
+  return raw.toLowerCase();
+}
+
+async function getInvestWatchlistPool() {
+  const data = await readJsonFile<Record<string, unknown>>(INVEST_WATCHLIST_PATH, {} as Record<string, unknown>);
+  const result = {
+    updatedAt: String(data._updated ?? ''),
+    groups: {
+      A股: Array.isArray(data['A股']) ? data['A股'] : [],
+      港股: Array.isArray(data['港股']) ? data['港股'] : [],
+      美股: Array.isArray(data['美股']) ? data['美股'] : [],
+    },
+    codes: [] as string[],
+  };
+
+  const allRaw = [
+    ...(result.groups['A股'] as string[]),
+    ...(result.groups['港股'] as string[]),
+    ...(result.groups['美股'] as string[]),
+  ];
+
+  result.codes = Array.from(new Set(allRaw.map((x) => normalizePoolCode(String(x))).filter(Boolean)));
+  return result;
+}
+
+async function getWatchlistQuotes(codes: string[]) {
+  const normalized = Array.from(new Set((codes || []).map((x) => normalizePoolCode(String(x))).filter(Boolean)));
+  if (normalized.length === 0) return [];
+  const cacheKey = `monitor:quotes:${normalized.join(',')}`;
+  const hit = getCache<any[]>(cacheKey);
+  if (hit) return hit;
+
+  const mapped = await Promise.all(
+    normalized.map(async (reqCode) => {
+      try {
+        const arr = await sdk.getAllQuotesByCodes([reqCode]);
+        const q: any = Array.isArray(arr) ? arr[0] : null;
+        const nameRaw = String(q?.name || '').trim();
+        return {
+          code: reqCode.toUpperCase(),
+          name: nameRaw || reqCode.toUpperCase(),
+          price: parseNumber(q?.price),
+          changePercent: parseNumber(q?.changePercent),
+          amount: parseNumber(q?.amount),
+          turnoverRate: parseNumber(q?.turnoverRate),
+          totalMarketCap: parseNumber(q?.totalMarketCap),
+        };
+      } catch {
+        return {
+          code: reqCode.toUpperCase(),
+          name: reqCode.toUpperCase(),
+          price: null,
+          changePercent: null,
+          amount: null,
+          turnoverRate: null,
+          totalMarketCap: null,
+        };
+      }
+    })
+  );
+
+  return setCache(cacheKey, mapped, DETAIL_TTL_MS);
+}
+
+async function updateMonitorRules(payload: Record<string, unknown>) {
+  const prev = await readJsonFile<Record<string, unknown>>(MONITOR_RULES_PATH, {} as Record<string, unknown>);
+  const next = {
+    enabled: payload.enabled ?? prev.enabled ?? true,
+    api_base: payload.api_base ?? prev.api_base ?? 'http://192.168.0.134:4175/api/boards',
+    cooldown_minutes: payload.cooldown_minutes ?? prev.cooldown_minutes ?? 45,
+    fetch_top_n: payload.fetch_top_n ?? prev.fetch_top_n ?? 25,
+    max_push_items: payload.max_push_items ?? prev.max_push_items ?? 6,
+    kinds: payload.kinds ?? prev.kinds ?? {},
+    watchlist_monitor:
+      payload.watchlist_monitor ??
+      prev.watchlist_monitor ?? {
+        enabled: true,
+        strategies: [],
+        stock_bindings: {},
+      },
+  };
+  await writeJsonFile(MONITOR_RULES_PATH, next);
+  return next;
+}
+
 function createHandler(): Connect.NextHandleFunction {
   return async (req, res, next) => {
-    if (!req.url?.startsWith('/api/boards/')) {
+    if (!req.url?.startsWith('/api/')) {
       next();
       return;
     }
 
     try {
       const url = new URL(req.url, 'http://localhost');
+
+      if (url.pathname === '/api/monitor/rules' && req.method === 'GET') {
+        json(res, 200, await getMonitorRules());
+        return;
+      }
+
+      if (url.pathname === '/api/monitor/rules' && req.method === 'POST') {
+        const chunks: Buffer[] = [];
+        req.on('data', (chunk) => chunks.push(Buffer.from(chunk)));
+        req.on('end', async () => {
+          try {
+            const body = JSON.parse(Buffer.concat(chunks).toString('utf-8') || '{}') as Record<string, unknown>;
+            const saved = await updateMonitorRules(body);
+            json(res, 200, { ok: true, rules: saved });
+          } catch (error) {
+            json(res, 400, { ok: false, error: error instanceof Error ? error.message : String(error) });
+          }
+        });
+        return;
+      }
+
+      if (url.pathname === '/api/monitor/push-records' && req.method === 'GET') {
+        const limit = Number(url.searchParams.get('limit') ?? '50');
+        json(res, 200, await getMonitorPushRecords(Number.isFinite(limit) ? limit : 50));
+        return;
+      }
+
+      if (url.pathname === '/api/monitor/watchlist' && req.method === 'GET') {
+        json(res, 200, await getInvestWatchlistPool());
+        return;
+      }
+
+      if (url.pathname === '/api/monitor/watchlist/quotes' && req.method === 'GET') {
+        const codesRaw = (url.searchParams.get('codes') || '').trim();
+        const codes = codesRaw ? codesRaw.split(',').map((x) => x.trim()).filter(Boolean) : [];
+        json(res, 200, await getWatchlistQuotes(codes));
+        return;
+      }
+
+      if (!url.pathname.startsWith('/api/boards/')) {
+        next();
+        return;
+      }
+
       const parts = url.pathname.split('/').filter(Boolean);
       const kind = parts[2] as BoardKind;
       const action = parts[3];

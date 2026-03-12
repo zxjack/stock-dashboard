@@ -12,6 +12,7 @@ import {
   Star,
   Settings,
   TrendingUp,
+  Bell,
 } from 'lucide-react';
 import { Logo } from '@/components/common';
 import styles from './Sidebar.module.css';
@@ -28,6 +29,7 @@ const navItems: NavItem[] = [
   { path: '/rankings', label: '榜单', icon: <BarChart3 size={18} /> },
   { path: '/boards', label: '板块', icon: <Layers size={18} /> },
   { path: '/watchlist', label: '自选', icon: <Star size={18} /> },
+  { path: '/monitor', label: '监控', icon: <Bell size={18} /> },
   { path: '/eod-picker', label: '尾盘选股', icon: <TrendingUp size={18} /> },
 ];
 

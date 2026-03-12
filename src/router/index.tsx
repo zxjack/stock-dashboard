@@ -9,6 +9,7 @@ import { Heatmap } from '@/pages/Heatmap';
 import { Rankings } from '@/pages/Rankings';
 import { Boards, BoardDetail } from '@/pages/Boards';
 import { Watchlist } from '@/pages/Watchlist';
+import { Monitor } from '@/pages/Monitor';
 import { Scanner } from '@/pages/Scanner';
 import { Settings } from '@/pages/Settings';
 import { StockDetail } from '@/pages/StockDetail';
@@ -43,6 +44,10 @@ const router = createBrowserRouter(
         {
           path: 'watchlist',
           element: <Watchlist />,
+        },
+        {
+          path: 'monitor',
+          element: <Monitor />,
         },
         {
           path: 'scanner',

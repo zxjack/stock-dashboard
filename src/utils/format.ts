@@ -209,9 +209,29 @@ export function parseStockCode(code: string): { market: string; symbol: string }
     };
   }
 
-  const numericMatch = trimmed.match(/^\d{6}$/);
-  if (numericMatch) {
-    // 根据代码推断市场（仅 6 位 A 股）
+  // 港股：hk09992 / hk.09992 / 09992.hk
+  const hkPrefixMatch = trimmed.match(/^hk\.?(\d{5})$/i);
+  if (hkPrefixMatch) {
+    return { market: 'hk', symbol: hkPrefixMatch[1] };
+  }
+  const hkSuffixMatch = trimmed.match(/^(\d{5})\.hk$/i);
+  if (hkSuffixMatch) {
+    return { market: 'hk', symbol: hkSuffixMatch[1] };
+  }
+
+  // 美股：usAAPL / us.AAPL / AAPL.us
+  const usPrefixMatch = trimmed.match(/^us\.?([a-z][a-z0-9.\-]*)$/i);
+  if (usPrefixMatch) {
+    return { market: 'us', symbol: usPrefixMatch[1].toUpperCase() };
+  }
+  const usSuffixMatch = trimmed.match(/^([a-z][a-z0-9.\-]*)\.us$/i);
+  if (usSuffixMatch) {
+    return { market: 'us', symbol: usSuffixMatch[1].toUpperCase() };
+  }
+
+  // 纯数字：6位 A 股；5位按港股处理
+  const numeric6 = trimmed.match(/^\d{6}$/);
+  if (numeric6) {
     if (trimmed.startsWith('6')) {
       return { market: 'sh', symbol: trimmed };
     }
@@ -221,6 +241,11 @@ export function parseStockCode(code: string): { market: string; symbol: string }
     if (trimmed.startsWith('4') || trimmed.startsWith('8')) {
       return { market: 'bj', symbol: trimmed };
     }
+  }
+
+  const numeric5 = trimmed.match(/^\d{5}$/);
+  if (numeric5) {
+    return { market: 'hk', symbol: trimmed };
   }
 
   return { market: '', symbol: trimmed };
