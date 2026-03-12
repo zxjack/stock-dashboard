@@ -1,7 +1,7 @@
 # stock-dashboard（fork 增强版，当前：v0.5）
 
 > 基于上游 stock-dashboard 的二次开发版本。当前重点是：
-> **局域网稳定部署 + 移动端可用 + 自选股跨端同步 + 监控栏目闭环（invest 推送）**。
+> **局域网稳定部署 + 移动端可用 + 自选股跨端同步 + 监控栏目闭环（Agent 推送）**。
 
 - 仓库：<https://github.com/zxjack/stock-dashboard>
 - 当前版本标签：`v0.5`（可用版）
@@ -36,7 +36,7 @@
 ### 4) 监控策略与推送闭环
 - 增加监控配置页（`/monitor`）
 - 支持保存规则、绑定自选、启停策略
-- 对接 invest 侧监控脚本与 Telegram 推送
+- 对接 Agent 侧监控脚本与消息通道推送
 - 推送去重与冷却（避免刷屏）
 
 ---
@@ -63,7 +63,7 @@
 2. 新建策略（例如：涨幅 > 1.5%）
 3. 给自选股绑定策略
 4. 点击「保存配置」
-5. 等待定时任务轮询，命中后由 invest bot 推送
+5. 等待定时任务轮询，命中后由目标 Agent 推送
 
 ### 2.4 配置文件位置（脱敏说明）
 - 监控规则、推送去重状态、自选分组均存放在**本地私有运行目录**
@@ -92,7 +92,7 @@
 - `is_new=false`：静默
 - `ok=false`：仅首条异常上报，避免重复刷屏
 
-#### Skill 编写建议（invest 方向）
+#### Skill 编写建议（通用 Agent）
 - Skill 名称示例：`board-anomaly-push`
 - Skill 职责：
   - 读取监控脚本输出
@@ -114,7 +114,7 @@
 
 #### A) Skill 目录结构
 ```text
-agents/invest/skills/board-anomaly-push/
+agents/<agent-name>/skills/board-anomaly-push/
 ├── SKILL.md
 └── scripts/
     └── run_monitor.py
@@ -183,13 +183,13 @@ else:
 ```
 
 #### D) OpenClaw 接入步骤（最小可用）
-1. 将 skill 放到 `agents/invest/skills/board-anomaly-push/`
+1. 将 skill 放到 `agents/<agent-name>/skills/board-anomaly-push/`
 2. 将监控脚本加入定时任务（cron/launchd 任选）
 3. 定时任务执行后读取 JSON：
    - `action=send` → 调用消息发送
    - `action=silent` → 不发送
    - `action=alert_once` → 首次异常告警
-4. 通过 invest 账号完成消息推送
+4. 通过目标 Agent 账号完成消息推送
 
 #### E) 验收标准
 - 有新信号时收到推送
