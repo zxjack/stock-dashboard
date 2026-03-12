@@ -65,13 +65,10 @@
 4. 点击「保存配置」
 5. 等待定时任务轮询，命中后由 invest bot 推送
 
-### 2.4 配置文件位置
-- 监控规则：
-  - `agents/invest/portfolio/board_anomaly_rules.json`
-- 推送去重状态：
-  - `agents/invest/research/pipeline/board_anomaly_state.json`
-- 自选分组后端存储：
-  - `agents/invest/portfolio/watchlist_groups.json`
+### 2.4 配置文件位置（脱敏说明）
+- 监控规则、推送去重状态、自选分组均存放在**本地私有运行目录**
+- 具体绝对路径不在公开文档披露（避免泄露本机目录结构）
+- 代码层可通过 API 使用，无需直接访问底层文件
 
 ### 2.5 监控相关 API（本地）
 - `GET /api/monitor/rules`
